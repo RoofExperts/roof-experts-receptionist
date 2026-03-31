@@ -5,7 +5,6 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask, PipelineParams
 from pipecat.transports.network.twilio_websocket import TwilioWebsocketTransport, TwilioParams
 from pipecat.services.google import GeminiMultimodalLiveLLMService
-from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.frames.frames import EndFrame
 
@@ -16,15 +15,14 @@ from config import SYSTEM_PROMPT, GEMINI_VOICE
 async def run_bot(websocket, caller_number: str):
     """
     Main Pipecat pipeline.
-    Twilio streams raw audio (8kHz mu-law) â this server â Gemini Live (native audio) â back to Twilio.
-    Gemini handles STT + LLM + TTS natively â no separate speech services needed.
+    Twilio streams raw audio (8kHz mu-law) -> this server -> Gemini Live (native audio) -> back to Twilio.
+    Gemini handles STT + LLM + TTS natively -- no separate speech services needed.
     """
     transport = TwilioWebsocketTransport(
         websocket=websocket,
         params=TwilioParams(
             audio_in_sample_rate=8000,   # Twilio sends 8kHz mu-law
             audio_out_sample_rate=8000,  # Twilio expects 8kHz mu-law back
-            vad_analyzer=SileroVADAnalyzer(),
         ),
     )
 
