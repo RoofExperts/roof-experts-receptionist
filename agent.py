@@ -3,8 +3,10 @@ import os
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask, PipelineParams
-from pipecat.transports.network.twilio_websocket import TwilioWebsocketTransport, TwilioParams
-from pipecat.services.google import GeminiMultimodalLiveLLMService
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, FastAPIWebsocketParams
+from pipecat.serializers.twilio import TwilioFrameSerializer
+from pipecat.runner.utils import parse_telephony_websocket
+from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.frames.frames import EndFrame
 
@@ -12,21 +14,39 @@ from functions import get_function_definitions, handle_function_call
 from config import SYSTEM_PROMPT, GEMINI_VOICE
 
 
-async def run_bot(websocket, caller_number: str):
+async def run_bot(websocket):
     """
     Main Pipecat pipeline.
-    Twilio streams raw audio (8kHz mu-law) -> this server -> Gemini Live (native audio) -> back to Twilio.
-    Gemini handles STT + LLM + TTS natively -- no separate speech services needed.
+    Twilio streams raw audio (8kHz mu-law) → this server → Gemini Live (native audio) → back to Twilio.
+    Gemini handles STT + LLM + TTS natively — no separate speech services needed.
     """
-    transport = TwilioWebsocketTransport(
+    # Parse the Twilio WebSocket handshake (connected + start events)
+    transport_type, call_data = await parse_telephony_websocket(websocket)
+
+    # Extract caller info from Twilio custom parameters
+    caller_number = call_data.get("body", {}).get("callerNumber", "Unknown")
+    stream_sid = call_data.get("stream_id", "")
+    call_sid = call_data.get("call_id", "")
+
+    serializer = TwilioFrameSerializer(
+        stream_sid=stream_sid,
+        call_sid=call_sid,
+        account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
+        auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
+    )
+
+    transport = FastAPIWebsocketTransport(
         websocket=websocket,
-        params=TwilioParams(
-            audio_in_sample_rate=8000,   # Twilio sends 8kHz mu-law
-            audio_out_sample_rate=8000,  # Twilio expects 8kHz mu-law back
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            add_wav_header=False,
+            vad_enabled=False,       # Gemini Live handles turn detection natively
+            serializer=serializer,
         ),
     )
 
-    llm = GeminiMultimodalLiveLLMService(
+    llm = GeminiLiveLLMService(
         api_key=os.getenv("GOOGLE_API_KEY"),
         model="gemini-2.5-flash-native-audio-preview-12-2025",  # Latest stable Live model
         voice_id=GEMINI_VOICE,
@@ -38,7 +58,7 @@ async def run_bot(websocket, caller_number: str):
     context = OpenAILLMContext(
         messages=[{
             "role": "user",
-            "content": f"[System: Inbound call starting. Caller phone number: {caller_number}. Begin the conversation now.]",
+            "content": "[System: Inbound call starting. Caller phone number: " + caller_number + ". Begin the conversation now.]",
         }]
     )
     context_aggregator = llm.create_context_aggregator(context)
@@ -65,3 +85,4 @@ async def run_bot(websocket, caller_number: str):
 
     runner = PipelineRunner()
     await runner.run(task)
+
