@@ -1,0 +1,7 @@
+pipecat-ai[google,twilio,silero]
+fastapi
+uvicorn[standard]
+python-dotenv
+requests
+twilio
+pytz
