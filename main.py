@@ -1,6 +1,4 @@
 import os
-import json
-import asyncio
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, Request
@@ -46,23 +44,13 @@ async def incoming_call(request: Request):
 async def websocket_endpoint(websocket: WebSocket):
     """
     Twilio streams call audio here over WebSocket.
-    We pipe it to Gemini Live and stream responses back.
+    Pipecat's parse_telephony_websocket handles the Twilio handshake,
+    then we pipe audio to Gemini Live and stream responses back.
     """
     await websocket.accept()
-
-    caller_number = "Unknown"
-    try:
-        # First message from Twilio is always a "connected" or "start" event
-        raw = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
-        data = json.loads(raw)
-        if data.get("event") == "start":
-            params = data.get("start", {}).get("customParameters", {})
-            caller_number = params.get("callerNumber", "Unknown")
-    except Exception:
-        pass  # Proceed with Unknown if we can't parse the opener
-
-    await run_bot(websocket, caller_number)
+    await run_bot(websocket)
 
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
