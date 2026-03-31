@@ -1,4 +1,4 @@
-pipecat-ai[google,twilio,silero]
+pipecat-ai[google,twilio]
 fastapi
 uvicorn[standard]
 python-dotenv
