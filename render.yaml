@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: roof-experts-receptionist
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: ZOHO_CLIENT_ID
+        sync: false
+      - key: ZOHO_CLIENT_SECRET
+        sync: false
+      - key: ZOHO_REFRESH_TOKEN
+        sync: false
+      - key: ZOHO_ORG_ID
+        sync: false
+      - key: ZOHO_DESK_ORG_ID
+        sync: false
+      - key: RC_TIMOTHY_NUMBER
+        sync: false
+      - key: RC_JOSH_NUMBER
+        sync: false
+      - key: RC_JIM_NUMBER
+        sync: false
+      - key: RC_MIKE_NUMBER
+        sync: false
+      - key: RC_EMERGENCY_NUMBER
+        sync: false
+      - key: BASE_URL
+        sync: false
