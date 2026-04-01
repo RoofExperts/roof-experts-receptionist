@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roof Experts AI Receptionist</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --primary: #1a56db;
+    --primary-light: #e8effc;
+    --danger: #dc2626;
+    --success: #16a34a;
+    --warning: #f59e0b;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-500: #6b7280;
+    --gray-700: #374151;
+    --gray-900: #111827;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: var(--gray-50); color: var(--gray-900); }
+
+  /* Header */
+  .header { background: white; border-bottom: 1px solid var(--gray-200);
+            padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 20px; font-weight: 700; color: var(--gray-900); }
+  .header h1 span { color: var(--primary); }
+  .header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--gray-500); }
+  .live-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%;
+              display: inline-block; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Layout */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+
+  /* Stat Cards */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+           gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: white; border-radius: 12px; padding: 20px 24px;
+               box-shadow: var(--shadow); }
+  .stat-label { font-size: 12px; font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.05em; color: var(--gray-500); margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 700; color: var(--gray-900); }
+  .stat-sub { font-size: 12px; color: var(--gray-500); margin-top: 4px; }
+  .stat-card.spam .stat-value { color: var(--danger); }
+  .stat-card.leads .stat-value { color: var(--success); }
+  .stat-card.transfers .stat-value { color: var(--primary); }
+
+  /* Charts Row */
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .chart-card { background: white; border-radius: 12px; padding: 20px 24px;
+                box-shadow: var(--shadow); }
+  .chart-card h3 { font-size: 14px; font-weight: 600; color: var(--gray-700); margin-bottom: 16px; }
+  .chart-container { position: relative; height: 220px; }
+
+  /* Call Log */
+  .call-log { background: white; border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .call-log-header { padding: 20px 24px; border-bottom: 1px solid var(--gray-200);
+                     display: flex; align-items: center; justify-content: space-between; }
+  .call-log-header h3 { font-size: 14px; font-weight: 600; }
+  .call-log-header select { padding: 6px 12px; border: 1px solid var(--gray-300);
+                            border-radius: 6px; font-size: 13px; background: white; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { padding: 10px 16px; text-align: left; font-size: 11px; font-weight: 600;
+       text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500);
+       background: var(--gray-50); border-bottom: 1px solid var(--gray-200); }
+  td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--gray-100);
+       vertical-align: middle; }
+  tr:hover { background: var(--gray-50); }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px;
+           font-size: 11px; font-weight: 600; }
+  .badge-spam { background: #fef2f2; color: var(--danger); }
+  .badge-legit { background: #f0fdf4; color: var(--success); }
+  .badge-silence { background: #fefce8; color: var(--warning); }
+  .badge-active { background: var(--primary-light); color: var(--primary); }
+
+  .outcome-badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+                   font-size: 11px; font-weight: 500; }
+  .outcome-lead { background: #f0fdf4; color: var(--success); }
+  .outcome-transfer { background: var(--primary-light); color: var(--primary); }
+  .outcome-emergency { background: #fef2f2; color: var(--danger); }
+  .outcome-info { background: var(--gray-100); color: var(--gray-500); }
+  .outcome-spam { background: #fef2f2; color: var(--danger); }
+
+  /* Play button */
+  .play-btn { background: none; border: 1px solid var(--gray-300); border-radius: 6px;
+              padding: 4px 10px; cursor: pointer; font-size: 12px; color: var(--gray-700);
+              transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px; }
+  .play-btn:hover { background: var(--primary-light); border-color: var(--primary);
+                    color: var(--primary); }
+  .play-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* Audio player */
+  .audio-bar { display: none; background: var(--gray-900); color: white; padding: 12px 32px;
+               position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+               align-items: center; gap: 16px; }
+  .audio-bar.visible { display: flex; }
+  .audio-bar .caller-info { font-size: 13px; font-weight: 600; min-width: 180px; }
+  .audio-bar audio { flex: 1; height: 32px; }
+  .audio-bar .close-btn { background: none; border: none; color: white; cursor: pointer;
+                          font-size: 18px; padding: 4px 8px; }
+
+  /* Empty state */
+  .empty-state { padding: 60px 20px; text-align: center; color: var(--gray-500); }
+  .empty-state p { font-size: 14px; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .container { padding: 16px; }
+    .charts { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .header { padding: 12px 16px; }
+    td, th { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Roof Experts</span> AI Receptionist</h1>
+  <div class="header-right">
+    <span><span class="live-dot"></span> Live</span>
+    <span id="lastUpdated">Updating...</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stat Cards -->
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-label">Total Calls</div>
+      <div class="stat-value" id="totalCalls">-</div>
+      <div class="stat-sub" id="totalCallsSub"></div>
+    </div>
+    <div class="stat-card spam">
+      <div class="stat-label">Spam Blocked</div>
+      <div class="stat-value" id="spamBlocked">-</div>
+      <div class="stat-sub" id="spamBlockedSub"></div>
+    </div>
+    <div class="stat-card leads">
+      <div class="stat-label">Leads Captured</div>
+      <div class="stat-value" id="leadsCaptured">-</div>
+      <div class="stat-sub" id="leadsCapturedSub"></div>
+    </div>
+    <div class="stat-card transfers">
+      <div class="stat-label">Transfers</div>
+      <div class="stat-value" id="transfers">-</div>
+      <div class="stat-sub" id="transfersSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Duration</div>
+      <div class="stat-value" id="avgDuration">-</div>
+      <div class="stat-sub">legitimate calls only</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Silence Timeouts</div>
+      <div class="stat-value" id="silenceTimeouts">-</div>
+      <div class="stat-sub">auto-hangups (dead air)</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Call Volume (Last 30 Days)</h3>
+      <div class="chart-container"><canvas id="volumeChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Call Breakdown</h3>
+      <div class="chart-container"><canvas id="breakdownChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Call Log -->
+  <div class="call-log">
+    <div class="call-log-header">
+      <h3>Recent Calls</h3>
+      <select id="filterStatus" onchange="loadCalls()">
+        <option value="">All Calls</option>
+        <option value="completed">Completed</option>
+        <option value="spam_blocked">Spam Blocked</option>
+        <option value="silence_timeout">Silence Timeout</option>
+        <option value="active">Active Now</option>
+      </select>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Caller</th>
+          <th>Duration</th>
+          <th>Status</th>
+          <th>Outcome</th>
+          <th>Recording</th>
+        </tr>
+      </thead>
+      <tbody id="callsBody">
+        <tr><td colspan="6" class="empty-state"><p>Loading calls...</p></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Audio Player Bar -->
+<div class="audio-bar" id="audioBar">
+  <div class="caller-info" id="audioCallerInfo"></div>
+  <audio id="audioPlayer" controls></audio>
+  <button class="close-btn" onclick="closePlayer()">&times;</button>
+</div>
+
+<script>
+const API_KEY = "{{DASHBOARD_KEY}}";
+const BASE = window.location.origin;
+let volumeChart = null;
+let breakdownChart = null;
+
+function apiUrl(path, params = {}) {
+  params.key = API_KEY;
+  const qs = new URLSearchParams(params).toString();
+  return `${BASE}${path}?${qs}`;
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '-';
+  const d = new Date(isoStr);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  if (isToday) return time;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + time;
+}
+
+function formatDuration(seconds) {
+  if (!seconds || seconds === 0) return '-';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
+
+function formatPhone(number) {
+  if (!number) return 'Unknown';
+  const clean = number.replace(/\D/g, '');
+  if (clean.length === 11 && clean[0] === '1') {
+    return `(${clean.slice(1,4)}) ${clean.slice(4,7)}-${clean.slice(7)}`;
+  }
+  if (clean.length === 10) {
+    return `(${clean.slice(0,3)}) ${clean.slice(3,6)}-${clean.slice(6)}`;
+  }
+  return number;
+}
+
+function statusBadge(status) {
+  const map = {
+    spam_blocked: ['Spam', 'badge-spam'],
+    completed: ['Completed', 'badge-legit'],
+    silence_timeout: ['Silent', 'badge-silence'],
+    active: ['Active', 'badge-active'],
+  };
+  const [label, cls] = map[status] || [status, ''];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function outcomeBadge(outcome, isSpam) {
+  if (isSpam) return `<span class="outcome-badge outcome-spam">Blocked</span>`;
+  if (!outcome) return '-';
+  const map = {
+    lead_captured: ['Lead Captured', 'outcome-lead'],
+    transferred: ['Transferred', 'outcome-transfer'],
+    emergency: ['Emergency', 'outcome-emergency'],
+    info_only: ['Info Only', 'outcome-info'],
+    message_taken: ['Message', 'outcome-info'],
+  };
+  const [label, cls] = map[outcome] || [outcome, 'outcome-info'];
+  return `<span class="outcome-badge ${cls}">${label}</span>`;
+}
+
+async function loadStats() {
+  try {
+    const resp = await fetch(apiUrl('/api/stats'));
+    const s = resp.ok ? await resp.json() : {};
+
+    document.getElementById('totalCalls').textContent = s.total_calls ?? '-';
+    document.getElementById('totalCallsSub').textContent = `${s.legitimate_calls ?? 0} legitimate`;
+    document.getElementById('spamBlocked').textContent = s.spam_blocked ?? '-';
+    const spamPct = s.total_calls > 0 ? Math.round((s.spam_blocked / s.total_calls) * 100) : 0;
+    document.getElementById('spamBlockedSub').textContent = `${spamPct}% of all calls`;
+    document.getElementById('leadsCaptured').textContent = s.leads_captured ?? '-';
+    const leadPct = s.legitimate_calls > 0 ? Math.round((s.leads_captured / s.legitimate_calls) * 100) : 0;
+    document.getElementById('leadsCapturedSub').textContent = `${leadPct}% conversion`;
+    document.getElementById('transfers').textContent = s.transfers ?? '-';
+    document.getElementById('transfersSub').textContent = `${s.emergencies ?? 0} emergencies`;
+    document.getElementById('avgDuration').textContent = formatDuration(s.avg_duration_seconds);
+    document.getElementById('silenceTimeouts').textContent = s.silence_timeouts ?? '-';
+
+    updateCharts(s);
+  } catch (e) {
+    console.error('Stats error:', e);
+  }
+}
+
+function updateCharts(stats) {
+  // Volume chart
+  const daily = (stats.daily || []).reverse();
+  const labels = daily.map(d => {
+    const dt = new Date(d.day + 'T12:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  });
+  const totalData = daily.map(d => d.count);
+  const spamData = daily.map(d => d.spam_count);
+
+  if (volumeChart) volumeChart.destroy();
+  volumeChart = new Chart(document.getElementById('volumeChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Legitimate', data: totalData.map((t, i) => t - (spamData[i] || 0)),
+          backgroundColor: '#3b82f6', borderRadius: 4, barPercentage: 0.7 },
+        { label: 'Spam', data: spamData,
+          backgroundColor: '#fca5a5', borderRadius: 4, barPercentage: 0.7 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+
+  // Breakdown pie
+  const breakdown = [
+    { label: 'Leads Captured', value: stats.leads_captured || 0, color: '#16a34a' },
+    { label: 'Transferred', value: stats.transfers || 0, color: '#3b82f6' },
+    { label: 'Info Only', value: (stats.completed_calls || 0) - (stats.leads_captured || 0) - (stats.transfers || 0) - (stats.emergencies || 0), color: '#9ca3af' },
+    { label: 'Spam Blocked', value: stats.spam_blocked || 0, color: '#ef4444' },
+    { label: 'Silent/Timeout', value: stats.silence_timeouts || 0, color: '#f59e0b' },
+    { label: 'Emergency', value: stats.emergencies || 0, color: '#7c3aed' },
+  ].filter(d => d.value > 0);
+
+  if (breakdownChart) breakdownChart.destroy();
+  breakdownChart = new Chart(document.getElementById('breakdownChart'), {
+    type: 'doughnut',
+    data: {
+      labels: breakdown.map(d => d.label),
+      datasets: [{ data: breakdown.map(d => d.value), backgroundColor: breakdown.map(d => d.color),
+                    borderWidth: 0, spacing: 2 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '65%',
+      plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 }, padding: 8 } } }
+    }
+  });
+}
+
+async function loadCalls() {
+  const status = document.getElementById('filterStatus').value;
+  const params = { limit: 50 };
+  if (status) params.status = status;
+
+  try {
+    const resp = await fetch(apiUrl('/api/calls', params));
+    const calls = resp.ok ? await resp.json() : [];
+    const tbody = document.getElementById('callsBody');
+
+    if (calls.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><p>No calls yet. Waiting for incoming calls...</p></td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = calls.map(c => `
+      <tr>
+        <td>${formatTime(c.started_at)}</td>
+        <td>
+          <div style="font-weight:500">${formatPhone(c.caller_number)}</div>
+          ${c.caller_name ? `<div style="font-size:11px;color:var(--gray-500)">${c.caller_name}</div>` : ''}
+        </td>
+        <td>${formatDuration(c.duration_seconds)}</td>
+        <td>${statusBadge(c.status)}</td>
+        <td>${outcomeBadge(c.outcome, c.is_spam)}</td>
+        <td>
+          ${c.recording_url
+            ? `<button class="play-btn" onclick="playRecording('${c.call_sid}', '${formatPhone(c.caller_number)}')">&#9654; Play</button>`
+            : '<span style="color:var(--gray-300);font-size:12px">No recording</span>'}
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.error('Calls error:', e);
+  }
+}
+
+async function playRecording(callSid, callerInfo) {
+  try {
+    const resp = await fetch(apiUrl(`/api/recording/${callSid}`));
+    if (!resp.ok) return alert('Recording not available');
+    const data = await resp.json();
+
+    const player = document.getElementById('audioPlayer');
+    const bar = document.getElementById('audioBar');
+    document.getElementById('audioCallerInfo').textContent = callerInfo;
+    player.src = data.url;
+    bar.classList.add('visible');
+    player.play();
+  } catch (e) {
+    console.error('Recording error:', e);
+  }
+}
+
+function closePlayer() {
+  const player = document.getElementById('audioPlayer');
+  player.pause();
+  player.src = '';
+  document.getElementById('audioBar').classList.remove('visible');
+}
+
+function updateTimestamp() {
+  const now = new Date();
+  document.getElementById('lastUpdated').textContent =
+    'Updated ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
+// Initial load
+loadStats();
+loadCalls();
+updateTimestamp();
+
+// Auto-refresh every 10 seconds
+setInterval(() => {
+  loadStats();
+  loadCalls();
+  updateTimestamp();
+}, 10000);
+</script>
+</body>
+</html>
