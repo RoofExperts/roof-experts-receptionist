@@ -7,7 +7,8 @@ from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, Fast
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.lm_response_universal import LLMContextAggregatorPair, LLMUserAggregatorParams
 from pipecat.frames.frames import EndFrame
 
 from functions import get_function_definitions, handle_function_call
@@ -17,8 +18,8 @@ from config import SYSTEM_PROMPT, GEMINI_VOICE
 async def run_bot(websocket):
     """
     Main Pipecat pipeline.
-    Twilio streams raw audio (8kHz mu-law) → this server → Gemini Live (native audio) → back to Twilio.
-    Gemini handles STT + LLM + TTS natively — no separate speech services needed.
+    Twilio streams raw audio (8kHz mu-law) -> this server -> Gemini Live (native audio) -> back to Twilio.
+    Gemini handles STT + LLM + TTS natively - no separate speech services needed.
     """
     # Parse the Twilio WebSocket handshake (connected + start events)
     transport_type, call_data = await parse_telephony_websocket(websocket)
@@ -41,42 +42,45 @@ async def run_bot(websocket):
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
-            vad_enabled=False,       # Gemini Live handles turn detection natively
+            vad_enabled=False,
             serializer=serializer,
         ),
     )
 
     llm = GeminiLiveLLMService(
         api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash-native-audio-preview-12-2025",  # Latest stable Live model
+        model="gemini-2.5-flash-native-audio-preview-09-2025",
         voice_id=GEMINI_VOICE,
         system_instruction=SYSTEM_PROMPT,
         tools=get_function_definitions(),
     )
 
     # Inject caller number into initial context so Gemini has it available
-    context = OpenAILLMContext(
+    context = LLMContext(
         messages=[{
             "role": "user",
-            "content": "[System: Inbound call starting. Caller phone number: " + caller_number + ". Begin the conversation now.]",
+            "content": f"[System: Inbound call starting. Caller phone number: {caller_number}. Begin the conversation now.]",
         }]
     )
-    context_aggregator = llm.create_context_aggregator(context)
+    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(),
+    )
 
     # Wire all function calls to the single handler in functions.py
     llm.register_function(None, handle_function_call)
 
     pipeline = Pipeline([
         transport.input(),
-        context_aggregator.user(),
+        user_aggregator,
         llm,
         transport.output(),
-        context_aggregator.assistant(),
+        assistant_aggregator,
     ])
 
     task = PipelineTask(
         pipeline,
-        params=PipelineParams(allow_interruptions=True),  # Enable barge-in
+        params=PipelineParams(allow_interruptions=True),
     )
 
     @transport.event_handler("on_client_disconnected")
@@ -85,4 +89,3 @@ async def run_bot(websocket):
 
     runner = PipelineRunner()
     await runner.run(task)
-
