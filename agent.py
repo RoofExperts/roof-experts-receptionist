@@ -1,5 +1,5 @@
 import os
-
+import asyncio
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask, PipelineParams
@@ -7,27 +7,19 @@ from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, Fast
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContext,
-    LLMContextAggregatorPair,
-    LLMUserAggregatorParams,
-)
-from pipecat.frames.frames import EndFrame, LLMRunFrame
-
+from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.frames.frames import EndFrame
 from functions import get_function_definitions, handle_function_call
 from config import SYSTEM_PROMPT, GEMINI_VOICE
 
+# === LAYER 2: Silence Watchdog ===
+# If no audio activity for this many seconds, hang up automatically.
+# Catches robodialers and dead-air calls that get past Twilio screening.
+SILENCE_TIMEOUT_SECS = 30
+
 
 async def run_bot(websocket):
-    """
-    Main Pipecat pipeline.
-    Twilio streams raw audio (8kHz mu-law) -> this server -> Gemini Live (native audio) -> back to Twilio.
-    Gemini handles STT + LLM + TTS natively - no separate speech services needed.
-    """
-    # Parse the Twilio WebSocket handshake (connected + start events)
     transport_type, call_data = await parse_telephony_websocket(websocket)
-
-    # Extract caller info from Twilio custom parameters
     caller_number = call_data.get("body", {}).get("callerNumber", "Unknown")
     stream_sid = call_data.get("stream_id", "")
     call_sid = call_data.get("call_id", "")
@@ -52,60 +44,50 @@ async def run_bot(websocket):
 
     llm = GeminiLiveLLMService(
         api_key=os.getenv("GOOGLE_API_KEY"),
+        model="gemini-2.5-flash-native-audio-preview-12-2025",
+        voice_id=GEMINI_VOICE,
         system_instruction=SYSTEM_PROMPT,
         tools=get_function_definitions(),
-        settings=GeminiLiveLLMService.Settings(
-            model="gemini-2.5-flash-native-audio-preview-09-2025",
-            voice=GEMINI_VOICE,
-        ),
     )
 
-    # Create context with an initial message that tells Gemini to greet the caller.
-    # This message is sent to Gemini once the LLMRunFrame triggers context delivery.
-    context = LLMContext(
-        messages=[{
-            "role": "user",
-            "content": (
-                f"[System: Inbound call starting now. "
-                f"Caller phone number: {caller_number}. "
-                f"Greet the caller according to your instructions.]"
-            ),
-        }]
+    context = OpenAILLMContext(
+        messages=[
+            {
+                "role": "user",
+                "content": f"[System: Inbound call starting. Caller phone number: {caller_number}. Begin the conversation now.]",
+            }
+        ]
     )
-    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
-        context,
-        user_params=LLMUserAggregatorParams(),
-    )
+    context_aggregator = llm.create_context_aggregator(context)
 
-    # Wire all function calls to the single handler in functions.py
     llm.register_function(None, handle_function_call)
 
-    pipeline = Pipeline([
-        transport.input(),
-        user_aggregator,
-        llm,
-        transport.output(),
-        assistant_aggregator,
-    ])
-
-    task = PipelineTask(
-        pipeline,
-        params=PipelineParams(
-            allow_interruptions=True,
-            audio_out_sample_rate=8000,
-        ),
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            context_aggregator.user(),
+            llm,
+            transport.output(),
+            context_aggregator.assistant(),
+        ]
     )
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        # Trigger initial greeting: LLMRunFrame flows downstream to the
-        # assistant_aggregator, which pushes the context frame UPSTREAM
-        # to the LLM, causing Gemini to process the initial context and speak.
-        await task.queue_frame(LLMRunFrame())
+    task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
 
     @transport.event_handler("on_client_disconnected")
     async def on_disconnect(transport, client):
         await task.queue_frame(EndFrame())
 
-    runner = PipelineRunner()
-    await runner.run(task)
+    # Layer 2: Silence watchdog — auto-hangup after 30s of no activity
+    async def silence_watchdog():
+        await asyncio.sleep(SILENCE_TIMEOUT_SECS)
+        print(f"[silence-watchdog] No activity for {SILENCE_TIMEOUT_SECS}s — ending call from {caller_number}")
+        await task.queue_frame(EndFrame())
+
+    watchdog = asyncio.create_task(silence_watchdog())
+
+    try:
+        runner = PipelineRunner()
+        await runner.run(task)
+    finally:
+        watchdog.cancel()
