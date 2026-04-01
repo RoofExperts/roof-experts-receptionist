@@ -1,4 +1,4 @@
-import os
+himport os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -41,7 +41,7 @@ def get_next_tx_estimator():
 # ── Gemini Voice ──────────────────────────────────────────────────────────────
 # Aoede = warm female | Puck = energetic male | Charon = calm male
 # Kore = professional female | Fenrir = confident male | Leda = bright female
-GEMINI_VOICE = "Aoede"
+GEMINI_VOICE = "Sulafat"
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 import pathlib
