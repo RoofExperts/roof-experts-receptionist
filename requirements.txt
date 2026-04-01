@@ -1,5 +1,6 @@
 pipecat-ai[google,twilio]
 fastapi
+python-multipart
 uvicorn[standard]
 python-dotenv
 requests
