@@ -20,8 +20,8 @@ NON_TX_NUMBER = os.getenv("RC_MIKE_NUMBER")
 EMERGENCY_NUMBER = os.getenv("RC_EMERGENCY_NUMBER")
 
 BUSINESS_HOURS = {
-    "start": 7,          # 7 AM CST
-    "end": 18,           # 6 PM CST
+    "start": 8,          # 8 AM CST
+    "end": 17,           # 5 PM CST
     "days": [0, 1, 2, 3, 4]  # Monday–Friday (0=Mon)
 }
 
