@@ -7,8 +7,7 @@ from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, Fast
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
-from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.lm_response_universal import LLMContextAggregatorPair, LLMUserAggregatorParams
+from pipecat.processors.aggregators.llm_response_universal import LLMContext, LLMContextAggregatorPair, LLMUserAggregatorParams
 from pipecat.frames.frames import EndFrame
 
 from functions import get_function_definitions, handle_function_call
