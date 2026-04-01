@@ -7,8 +7,12 @@ from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, Fast
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
-from pipecat.processors.aggregators.llm_response_universal import LLMContext, LLMContextAggregatorPair, LLMUserAggregatorParams
-from pipecat.frames.frames import EndFrame
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContext,
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
+from pipecat.frames.frames import EndFrame, LLMRunFrame
 
 from functions import get_function_definitions, handle_function_call
 from config import SYSTEM_PROMPT, GEMINI_VOICE
@@ -48,17 +52,24 @@ async def run_bot(websocket):
 
     llm = GeminiLiveLLMService(
         api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash-native-audio-preview-09-2025",
-        voice_id=GEMINI_VOICE,
         system_instruction=SYSTEM_PROMPT,
         tools=get_function_definitions(),
+        settings=GeminiLiveLLMService.Settings(
+            model="gemini-2.5-flash-native-audio-preview-09-2025",
+            voice=GEMINI_VOICE,
+        ),
     )
 
-    # Inject caller number into initial context so Gemini has it available
+    # Create context with an initial message that tells Gemini to greet the caller.
+    # This message is sent to Gemini once the LLMRunFrame triggers context delivery.
     context = LLMContext(
         messages=[{
             "role": "user",
-            "content": f"[System: Inbound call starting. Caller phone number: {caller_number}. Begin the conversation now.]",
+            "content": (
+                f"[System: Inbound call starting now. "
+                f"Caller phone number: {caller_number}. "
+                f"Greet the caller according to your instructions.]"
+            ),
         }]
     )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
@@ -79,8 +90,18 @@ async def run_bot(websocket):
 
     task = PipelineTask(
         pipeline,
-        params=PipelineParams(allow_interruptions=True),
+        params=PipelineParams(
+            allow_interruptions=True,
+            audio_out_sample_rate=8000,
+        ),
     )
+
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(transport, client):
+        # Trigger initial greeting: LLMRunFrame flows downstream to the
+        # assistant_aggregator, which pushes the context frame UPSTREAM
+        # to the LLM, causing Gemini to process the initial context and speak.
+        await task.queue_frame(LLMRunFrame())
 
     @transport.event_handler("on_client_disconnected")
     async def on_disconnect(transport, client):
