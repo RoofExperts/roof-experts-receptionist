@@ -19,6 +19,7 @@ twilio_client = TwilioClient(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_
 
 def get_function_definitions() -> list:
     return [
+        {"function_declarations": [
         {
             "name": "capture_lead",
             "description": (
@@ -117,6 +118,7 @@ def get_function_definitions() -> list:
                 "required": ["query"],
             },
         },
+        ]},
     ]
 
 
