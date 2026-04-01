@@ -1,4 +1,4 @@
-pipecat-ai[google,twilio]
+pipecat-ai[google,twilio]==0.0.108
 fastapi
 python-multipart
 uvicorn[standard]
