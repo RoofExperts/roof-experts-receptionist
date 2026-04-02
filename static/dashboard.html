@@ -99,6 +99,31 @@
                     color: var(--primary); }
   .play-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
+  /* Block button */
+  .block-btn { background: none; border: 1px solid var(--danger); border-radius: 6px;
+               padding: 4px 10px; cursor: pointer; font-size: 11px; color: var(--danger);
+               font-weight: 600; transition: all 0.15s; }
+  .block-btn:hover { background: #fef2f2; }
+  .unblock-btn { background: none; border: 1px solid var(--gray-300); border-radius: 6px;
+                 padding: 4px 10px; cursor: pointer; font-size: 11px; color: var(--gray-500);
+                 font-weight: 500; transition: all 0.15s; }
+  .unblock-btn:hover { background: var(--gray-100); }
+
+  /* Blocked numbers section */
+  .blocked-section { background: white; border-radius: 12px; box-shadow: var(--shadow);
+                     overflow: hidden; margin-top: 24px; }
+  .blocked-header { padding: 20px 24px; border-bottom: 1px solid var(--gray-200);
+                    display: flex; align-items: center; justify-content: space-between; }
+  .blocked-header h3 { font-size: 14px; font-weight: 600; }
+  .blocked-count { background: var(--danger); color: white; font-size: 11px; font-weight: 700;
+                   padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
+  .blocked-list { padding: 12px 24px; }
+  .blocked-item { display: flex; align-items: center; justify-content: space-between;
+                  padding: 8px 0; border-bottom: 1px solid var(--gray-100); }
+  .blocked-item:last-child { border-bottom: none; }
+  .blocked-phone { font-weight: 600; font-size: 14px; }
+  .blocked-meta { font-size: 11px; color: var(--gray-500); }
+
   /* Audio player */
   .audio-bar { display: none; background: var(--gray-900); color: white; padding: 12px 32px;
                position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
@@ -201,12 +226,24 @@
           <th>Status</th>
           <th>Outcome</th>
           <th>Recording</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="callsBody">
-        <tr><td colspan="6" class="empty-state"><p>Loading calls...</p></td></tr>
+        <tr><td colspan="7" class="empty-state"><p>Loading calls...</p></td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+  <!-- Blocked Numbers -->
+  <div class="blocked-section">
+    <div class="blocked-header">
+      <h3>Blocked Numbers <span class="blocked-count" id="blockedCount">0</span></h3>
+    </div>
+    <div class="blocked-list" id="blockedList">
+      <div class="empty-state" style="padding:20px"><p>No blocked numbers</p></div>
+    </div>
   </div>
 </div>
 
@@ -376,7 +413,7 @@ async function loadCalls() {
     const tbody = document.getElementById('callsBody');
 
     if (calls.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><p>No calls yet. Waiting for incoming calls...</p></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><p>No calls yet. Waiting for incoming calls...</p></td></tr>';
       return;
     }
 
@@ -394,6 +431,11 @@ async function loadCalls() {
           ${c.recording_url
             ? `<button class="play-btn" onclick="playRecording('${c.call_sid}', '${formatPhone(c.caller_number)}')">&#9654; Play</button>`
             : '<span style="color:var(--gray-300);font-size:12px">No recording</span>'}
+        </td>
+        <td>
+          ${c.caller_number && c.caller_number !== 'Unknown'
+            ? `<button class="block-btn" onclick="blockCaller('${c.caller_number}')">Block</button>`
+            : ''}
         </td>
       </tr>
     `).join('');
@@ -432,15 +474,65 @@ function updateTimestamp() {
     'Updated ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
 
+async function loadBlocked() {
+  try {
+    const resp = await fetch(apiUrl('/api/blocked'));
+    const list = resp.ok ? await resp.json() : [];
+    document.getElementById('blockedCount').textContent = list.length;
+    const container = document.getElementById('blockedList');
+    if (list.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding:20px"><p>No blocked numbers</p></div>';
+      return;
+    }
+    container.innerHTML = list.map(b => `
+      <div class="blocked-item">
+        <div>
+          <div class="blocked-phone">${formatPhone(b.phone_number)}</div>
+          <div class="blocked-meta">${b.reason ? b.reason + ' &middot; ' : ''}Blocked ${formatTime(b.blocked_at)}</div>
+        </div>
+        <button class="unblock-btn" onclick="unblockCaller('${b.phone_number}')">Unblock</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Blocked list error:', e);
+  }
+}
+
+async function blockCaller(phone) {
+  if (!confirm(`Block ${formatPhone(phone)} from calling? Twilio will reject all future calls from this number.`)) return;
+  try {
+    const resp = await fetch(apiUrl('/api/block'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phone, reason: 'Blocked from dashboard' })
+    });
+    if (resp.ok) { loadBlocked(); loadCalls(); }
+  } catch (e) { console.error('Block error:', e); }
+}
+
+async function unblockCaller(phone) {
+  if (!confirm(`Unblock ${formatPhone(phone)}?`)) return;
+  try {
+    const resp = await fetch(apiUrl('/api/unblock'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phone })
+    });
+    if (resp.ok) { loadBlocked(); loadCalls(); }
+  } catch (e) { console.error('Unblock error:', e); }
+}
+
 // Initial load
 loadStats();
 loadCalls();
+loadBlocked();
 updateTimestamp();
 
 // Auto-refresh every 10 seconds
 setInterval(() => {
   loadStats();
   loadCalls();
+  loadBlocked();
   updateTimestamp();
 }, 10000);
 </script>
