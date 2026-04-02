@@ -54,7 +54,7 @@ class ZohoClient:
             result = fn()
         return result
 
-    # ── CRM ─────────────────────────────────────────────────────────────────────────
+    # ── CRM ───────────────────────────────────────────────────────────────────
 
     def create_lead(self, data: dict) -> dict:
         """Create a lead in Zoho CRM. Returns the created record details dict."""
@@ -70,7 +70,100 @@ class ZohoClient:
             print(f"[ZohoClient] create_lead failed: {e}")
             return {}
 
-    # ── Desk KB ─────────────────────────────────────────────────────────────────────
+    # ── CRM Search (Bids / Deals) ──────────────────────────────────────────────
+
+    def search_bids(self, query: str) -> list:
+        """
+        Search the custom Bids module (CustomModule2) using COQL.
+        Searches by Project_Name, Received_From (GC company), City, or Street.
+        Returns list of matching bid records with key fields.
+        """
+        # Sanitize query for COQL — escape single quotes
+        safe_q = query.replace("'", "\\'").strip()
+        if not safe_q:
+            return []
+
+        coql = (
+            "SELECT Project_Name, Received_From, Bid_Owner, Bid_Status, "
+            "Bid_Due_Date, Bid_Sent_Date, Expected_Project_Start, "
+            "Street, City, State, Zip, "
+            "Pre_Contact_Name, Company, PC_Email, Phone "
+            "FROM CustomModule2 "
+            f"WHERE Project_Name like '%{safe_q}%' "
+            f"OR Received_From like '%{safe_q}%' "
+            f"OR City like '%{safe_q}%' "
+            f"OR Street like '%{safe_q}%' "
+            "LIMIT 5"
+        )
+        try:
+            resp = self._retry_on_401(lambda: requests.post(
+                f"{self.CRM_BASE_URL.replace('/v2', '/v7')}/coql",
+                headers={**self._crm_headers(), "Content-Type": "application/json"},
+                json={"select_query": coql},
+            ))
+            if resp.status_code != 200:
+                print(f"[ZohoClient] COQL bids search returned {resp.status_code}: {resp.text[:200]}")
+                return []
+
+            records = resp.json().get("data", [])
+            results = []
+            for r in records:
+                owner = r.get("Bid_Owner") or {}
+                results.append({
+                    "project_name": r.get("Project_Name", ""),
+                    "received_from": r.get("Received_From", ""),
+                    "bid_owner": owner.get("name", "") if isinstance(owner, dict) else str(owner),
+                    "bid_status": r.get("Bid_Status", ""),
+                    "bid_due_date": r.get("Bid_Due_Date", ""),
+                    "city": r.get("City", ""),
+                    "state": r.get("State", ""),
+                    "street": r.get("Street", ""),
+                })
+            return results
+        except Exception as e:
+            print(f"[ZohoClient] search_bids failed: {e}")
+            return []
+
+    def search_deals(self, query: str) -> list:
+        """
+        Fallback search in the Deals module using COQL.
+        Returns list of matching deal records.
+        """
+        safe_q = query.replace("'", "\\'").strip()
+        if not safe_q:
+            return []
+
+        coql = (
+            "SELECT Deal_Name, Stage, Owner, Amount, Closing_Date "
+            "FROM Deals "
+            f"WHERE Deal_Name like '%{safe_q}%' "
+            "LIMIT 5"
+        )
+        try:
+            resp = self._retry_on_401(lambda: requests.post(
+                f"{self.CRM_BASE_URL.replace('/v2', '/v7')}/coql",
+                headers={**self._crm_headers(), "Content-Type": "application/json"},
+                json={"select_query": coql},
+            ))
+            if resp.status_code != 200:
+                print(f"[ZohoClient] COQL deals search returned {resp.status_code}: {resp.text[:200]}")
+                return []
+
+            records = resp.json().get("data", [])
+            results = []
+            for r in records:
+                owner = r.get("Owner") or {}
+                results.append({
+                    "deal_name": r.get("Deal_Name", ""),
+                    "stage": r.get("Stage", ""),
+                    "owner": owner.get("name", "") if isinstance(owner, dict) else str(owner),
+                })
+            return results
+        except Exception as e:
+            print(f"[ZohoClient] search_deals failed: {e}")
+            return []
+
+    # ── Desk KB ───────────────────────────────────────────────────────────────
 
     def search_kb_articles(self, query: str, limit: int = 3) -> list:
         """
