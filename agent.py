@@ -10,7 +10,7 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.processors.aggregators.llm_response_universal import LLMContext, LLMContextAggregatorPair
-from pipecat.frames.frames import EndFrame
+from pipecat.frames.frames import EndFrame, LLMContextFrame
 
 from functions import get_function_definitions, handle_function_call
 from config import SYSTEM_PROMPT, GEMINI_VOICE
@@ -119,6 +119,12 @@ async def run_bot(websocket):
     task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
 
     silence_ended = False
+
+    @transport.event_handler("on_client_connected")
+    async def on_connected(transport, client):
+        # Push initial context to Gemini Live so it starts the conversation.
+        # Without this, _ready_for_realtime_input stays False and all audio is dropped.
+        await task.queue_frames([LLMContextFrame(context=context)])
 
     @transport.event_handler("on_client_disconnected")
     async def on_disconnect(transport, client):
