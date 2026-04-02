@@ -9,7 +9,7 @@ from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, Fast
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_response_universal import LLMContext, LLMContextAggregatorPair
 from pipecat.frames.frames import EndFrame
 
 from functions import get_function_definitions, handle_function_call
@@ -57,13 +57,15 @@ async def run_bot(websocket):
 
     llm = GeminiLiveLLMService(
         api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash-native-audio-preview-12-2025",
         voice_id=GEMINI_VOICE,
         system_instruction=SYSTEM_PROMPT,
         tools=get_function_definitions(),
+        settings=GeminiLiveLLMService.Settings(
+            model="gemini-2.5-flash-native-audio-preview-12-2025",
+        ),
     )
 
-    context = OpenAILLMContext(
+    context = LLMContext(
         messages=[
             {
                 "role": "user",
@@ -71,7 +73,7 @@ async def run_bot(websocket):
             }
         ]
     )
-    context_aggregator = llm.create_context_aggregator(context)
+    context_aggregator = LLMContextAggregatorPair(context)
 
     # Wrap handle_function_call to log events
     async def _logged_function_call(function_name: str, arguments: dict) -> str:
