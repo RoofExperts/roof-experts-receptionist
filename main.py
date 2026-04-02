@@ -13,6 +13,7 @@ from agent import run_bot
 from database import (
     init_db, log_call_start, update_call_end, update_call_recording,
     get_calls, get_call_by_sid, get_call_events, get_stats,
+    get_blocked_numbers, block_number, unblock_number, is_number_blocked,
 )
 
 load_dotenv()
@@ -45,6 +46,8 @@ SPAM_CALLER_NAMES = [
 
 def is_spam_caller(from_number: str, caller_name: str) -> bool:
     if from_number in BLOCKED_NUMBERS:
+        return True
+    if is_number_blocked(from_number):
         return True
     name_lower = (caller_name or "").lower().strip()
     return any(spam in name_lower for spam in SPAM_CALLER_NAMES)
@@ -79,9 +82,7 @@ async def incoming_call(request: Request):
 
     # Start Twilio recording in background (after TwiML is returned)
     base_url = os.getenv("BASE_URL", "").replace("https://", "").replace("http://", "")
-    asyncio.get_event_loop().call_later(
-        2.0, _start_recording, call_sid, base_url
-    )
+    asyncio.ensure_future(_start_recording_async(call_sid, base_url))
 
     # Connect to Pipecat
     response = VoiceResponse()
@@ -94,8 +95,9 @@ async def incoming_call(request: Request):
     return PlainTextResponse(str(response), media_type="application/xml")
 
 
-def _start_recording(call_sid: str, base_url: str):
-    """Start recording the call via Twilio REST API."""
+async def _start_recording_async(call_sid: str, base_url: str):
+    """Start recording the call via Twilio REST API with delay."""
+    await asyncio.sleep(2.0)  # Wait for call to connect
     try:
         twilio_client.calls(call_sid).recordings.create(
             recording_status_callback=f"https://{base_url}/recording-callback",
@@ -214,6 +216,43 @@ async def api_recording(call_sid: str, request: Request):
     if not call or not call.get("recording_url"):
         return JSONResponse({"error": "no recording"}, 404)
     return JSONResponse({"url": call["recording_url"]})
+
+
+# ââ Block / Unblock API ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+@app.get("/api/blocked")
+async def api_blocked(request: Request):
+    if not _check_key(request):
+        return JSONResponse({"error": "unauthorized"}, 401)
+    return JSONResponse(get_blocked_numbers())
+
+
+@app.post("/api/block")
+async def api_block(request: Request):
+    if not _check_key(request):
+        return JSONResponse({"error": "unauthorized"}, 401)
+    body = await request.json()
+    phone = body.get("phone_number", "").strip()
+    reason = body.get("reason", "")
+    if not phone:
+        return JSONResponse({"error": "phone_number required"}, 400)
+    created = block_number(phone, reason)
+    # Also add to in-memory set for instant blocking
+    BLOCKED_NUMBERS.add(phone)
+    return JSONResponse({"blocked": True, "new": created})
+
+
+@app.post("/api/unblock")
+async def api_unblock(request: Request):
+    if not _check_key(request):
+        return JSONResponse({"error": "unauthorized"}, 401)
+    body = await request.json()
+    phone = body.get("phone_number", "").strip()
+    if not phone:
+        return JSONResponse({"error": "phone_number required"}, 400)
+    removed = unblock_number(phone)
+    BLOCKED_NUMBERS.discard(phone)
+    return JSONResponse({"unblocked": True, "was_blocked": removed})
 
 
 # ââ Main âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
