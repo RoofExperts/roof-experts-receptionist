@@ -19,7 +19,6 @@ twilio_client = TwilioClient(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_
 
 def get_function_definitions() -> list:
     return [
-        {"function_declarations": [
         {
             "name": "capture_lead",
             "description": (
@@ -91,6 +90,28 @@ def get_function_definitions() -> list:
             "parameters": {"type": "object", "properties": {}},
         },
         {
+            "name": "check_bid_status",
+            "description": (
+                "Search Zoho CRM to check if Roof Experts has a bid on a project. "
+                "Use this when a caller (typically a General Contractor or customer) "
+                "asks whether Roof Experts is bidding on a specific project. "
+                "Search by project name, General Contractor / company name, or project address/city."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_query": {
+                        "type": "string",
+                        "description": (
+                            "The project name, GC/company name, or project address/city to search for. "
+                            "Use the most specific term the caller provides."
+                        ),
+                    },
+                },
+                "required": ["search_query"],
+            },
+        },
+        {
             "name": "search_knowledge_base",
             "description": (
                 "Search the Roof Experts knowledge base for detailed answers about "
@@ -118,7 +139,6 @@ def get_function_definitions() -> list:
                 "required": ["query"],
             },
         },
-        ]},
     ]
 
 
@@ -135,6 +155,8 @@ async def handle_function_call(function_name: str, arguments: dict) -> str:
             return await _escalate_emergency(arguments)
         elif function_name == "check_business_hours":
             return _check_business_hours()
+        elif function_name == "check_bid_status":
+            return await _check_bid_status(arguments)
         elif function_name == "search_knowledge_base":
             return await _search_knowledge_base(arguments)
         else:
@@ -246,6 +268,115 @@ def _check_business_hours() -> str:
         "current_time_cst": now.strftime("%I:%M %p CST"),
         "day": now.strftime("%A"),
         "message": "We are currently open." if is_open else "We are currently closed.",
+    })
+
+
+async def _check_bid_status(args: dict) -> str:
+    """
+    Search Bids module first, then Deals module as fallback.
+    Returns bid status + estimator info for the AI to relay.
+    """
+    query = args.get("search_query", "").strip()
+    if not query:
+        return json.dumps({
+            "found": False,
+            "message": "I don't see that project on our bid list. Could you send the project details over to estimating@roofexperts.com so our team can take a look?",
+        })
+
+    # --- Search Bids (CustomModule2) first ---
+    bids = zoho.search_bids(query)
+
+    if bids:
+        bid = bids[0]  # Best match
+        status = bid.get("bid_status", "")
+        estimator = bid.get("bid_owner", "our estimator")
+        project = bid.get("project_name", query)
+
+        # Categorize the bid status
+        ACTIVE_STATUSES = [
+            "Needs Analysis", "Going to Bid", "Bid Submitted",
+            "LoI Received", "Budget", "On Hold/Need more info",
+        ]
+        WON_STATUSES = ["Bid Won"]
+        DECLINED_STATUSES = ["Did Not Bid/Not Going to Bid"]
+        LOST_STATUSES = ["Bid Lost"]
+
+        if status in ACTIVE_STATUSES:
+            category = "active"
+            message = (
+                f"Yes, that project is on our bid list. "
+                f"It's assigned to {estimator}. "
+                f"Would you like me to transfer you to them?"
+            )
+        elif status in WON_STATUSES:
+            category = "won"
+            message = (
+                f"Yes, we have that project. It's been awarded to us "
+                f"and assigned to {estimator}. "
+                f"Would you like me to transfer you?"
+            )
+        elif status in DECLINED_STATUSES:
+            category = "declined"
+            message = (
+                "It looks like our team reviewed that project and decided "
+                "to pass on this one. But we appreciate you reaching out! "
+                "Please continue to send us bid invites â "
+                "this one just isn't a good fit for us right now."
+            )
+        elif status in LOST_STATUSES:
+            category = "lost"
+            message = (
+                f"I see this project in our system. "
+                f"Let me transfer you to {estimator}."
+            )
+        else:
+            category = "active"
+            message = (
+                f"Yes, I see that project in our system. "
+                f"It's assigned to {estimator}. "
+                f"Would you like me to transfer you to them?"
+            )
+
+        return json.dumps({
+            "found": True,
+            "source": "bids",
+            "project_name": project,
+            "bid_status": status,
+            "category": category,
+            "estimator": estimator,
+            "message": message,
+        })
+
+    # --- Fallback: Search Deals ---
+    deals = zoho.search_deals(query)
+
+    if deals:
+        deal = deals[0]
+        owner = deal.get("owner", "our team")
+        deal_name = deal.get("deal_name", query)
+        stage = deal.get("stage", "")
+
+        return json.dumps({
+            "found": True,
+            "source": "deals",
+            "deal_name": deal_name,
+            "stage": stage,
+            "estimator": owner,
+            "message": (
+                f"Yes, I see that project in our system. "
+                f"It's assigned to {owner}. "
+                f"Would you like me to transfer you to them?"
+            ),
+        })
+
+    # --- Not found ---
+    return json.dumps({
+        "found": False,
+        "message": (
+            "I don't see that project on our bid list. "
+            "Could you send the project details over to "
+            "estimating@roofexperts.com so our team can take a look?"
+        ),
     })
 
 
