@@ -67,10 +67,18 @@ def init_db():
                 FOREIGN KEY (call_id) REFERENCES calls(id)
             );
 
+            CREATE TABLE IF NOT EXISTS blocked_numbers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone_number TEXT UNIQUE NOT NULL,
+                reason TEXT DEFAULT '',
+                blocked_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_calls_started ON calls(started_at);
             CREATE INDEX IF NOT EXISTS idx_calls_status ON calls(status);
             CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_number);
             CREATE INDEX IF NOT EXISTS idx_events_call ON call_events(call_id);
+            CREATE INDEX IF NOT EXISTS idx_blocked_number ON blocked_numbers(phone_number);
         """)
     print(f"[database] Initialized at {DB_PATH}")
 
@@ -267,3 +275,46 @@ def get_stats(date_from: str = None, date_to: str = None) -> dict:
             "daily": [dict(r) for r in daily],
             "outcomes": [dict(r) for r in outcomes],
         }
+
+
+# ââ Blocked Numbers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+def get_blocked_numbers() -> list:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM blocked_numbers ORDER BY blocked_at DESC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def block_number(phone_number: str, reason: str = "") -> bool:
+    """Block a phone number. Returns True if newly blocked, False if already blocked."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO blocked_numbers (phone_number, reason, blocked_at) VALUES (?, ?, ?)",
+                (phone_number, reason, now)
+            )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def unblock_number(phone_number: str) -> bool:
+    """Unblock a phone number. Returns True if removed, False if not found."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM blocked_numbers WHERE phone_number = ?",
+            (phone_number,)
+        )
+        return cursor.rowcount > 0
+
+
+def is_number_blocked(phone_number: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM blocked_numbers WHERE phone_number = ?",
+            (phone_number,)
+        ).fetchone()
+        return row is not None
